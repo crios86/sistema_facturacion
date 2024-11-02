@@ -4,11 +4,12 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    MYSQL_HOST = 'autorack.proxy.rlwy.net'
+    WTF_CSRF_ENABLED = True
+    MYSQL_HOST = 'junction.proxy.rlwy.net'
     MYSQL_USER = 'root'
-    MYSQL_PASSWORD = 'aUJCbMrDpEfkcWjaOXuWmcyvpkwZLBbx'
+    MYSQL_PASSWORD = 'WRnKKzyTMoQRYpBUUeNcPQrdnuGWFaOZ'
     MYSQL_DB = 'railway'
-    MYSQL_PORT = 16342  # Puerto de la instancia
+    MYSQL_PORT = 23625  # Puerto de la instancia
 
 # Configuración del entorno
 config = {

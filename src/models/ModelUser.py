@@ -1,49 +1,29 @@
 import MySQLdb
 from .entities.User import User
-from werkzeug.security import  check_password_hash
+from werkzeug.security import  check_password_hash, generate_password_hash
 
 class ModelUser:
-
-    @classmethod
-    def create_user_table(cls, conn):
-        """Crea la tabla de usuarios si no existe, ajustando el tamaño de la columna password."""
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(50) NOT NULL UNIQUE,
-                    password VARCHAR(255) NOT NULL,  -- Cambiar a VARCHAR(255)
-                    fullname VARCHAR(100),
-                    email VARCHAR(100),
-                    document_type VARCHAR(10),
-                    identity_number VARCHAR(50),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-            print("Tabla 'users' creada/verificada correctamente.")
-        except MySQLdb.Error as e:
-            print(f"Error al crear la tabla: {e}")
-        finally:
-            cursor.close()
 
     @classmethod
     def register_user(cls, conn, username, password, fullname, email, document_type, identity_number):
         """Registra un nuevo usuario en la base de datos."""
         cursor = conn.cursor()
         try:
-            hashed_password = User.create_hash(password)  # Genera el hash de la contraseña
+            # Hash de la contraseña
+            hashed_password = generate_password_hash(password)  # Genera el hash de la contraseña
             cursor.execute("""
-                INSERT INTO users (username, password, fullname, email, document_type, identity_number)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (username, hashed_password, fullname, email, document_type, identity_number))
+                INSERT INTO users (username, password, fullname, email, document_type, identity_number, role_id, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (username, hashed_password, fullname, email, document_type, identity_number, 1, 1))  # role_id y status por defecto
             conn.commit()
             print("Usuario registrado exitosamente.")
         except MySQLdb.Error as e:
             print(f"Error al registrar el usuario: {e}")
+            raise  # Lanza el error para que se gestione en app.py
         finally:
             cursor.close()
+
+
 
     @classmethod
     def get_by_id(cls, conn, id):
@@ -64,15 +44,26 @@ class ModelUser:
         """Valida el nombre de usuario y la contraseña al iniciar sesión."""
         cursor = conn.cursor(MySQLdb.cursors.DictCursor)
         try:
-            # Obtener el usuario de la base de datos
+            # Busca al usuario por nombre de usuario
             cursor.execute("SELECT * FROM users WHERE username = %s", (user.username,))
             user_data = cursor.fetchone()
 
+            # Si se encuentra el usuario, se procede a verificar la contraseña
             if user_data:
-                # Verificar la contraseña hasheada
+                # Verificación de la contraseña encriptada
                 if check_password_hash(user_data['password'], user.password):
-                    # Si la contraseña es válida, devolver el objeto User
-                    return User(**user_data)
+                    # Retorna una instancia del usuario si las credenciales son correctas
+                    return User(
+                        id=user_data['id'],  # Obtén el id de la base de datos
+                        username=user_data['username'],
+                        password=user_data['password'],  # Puedes dejar el hash o no incluirlo
+                        fullname=user_data['fullname'],
+                        email=user_data['email'],
+                        document_type=user_data['document_type'],
+                        identity_number=user_data['identity_number'],
+                        role_id=user_data['role_id'],
+                        status=user_data['status']
+                    )
                 else:
                     print("Contraseña incorrecta")
                     return None

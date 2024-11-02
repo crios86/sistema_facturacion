@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_wtf.csrf import CSRFProtect
-from flask_login import LoginManager, login_user, logout_user, login_required
+from flask_login import LoginManager, login_user, logout_user, login_required,current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import MySQLdb
 
@@ -37,37 +37,26 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    user = ModelUser.get_by_id(conn, user_id)
-    conn.close()
-    return user
+    with get_db_connection() as conn:  # Cambia aquí
+        return ModelUser.get_by_id(conn, user_id)
 
 @app.before_first_request
 def initialize_database():
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        # Crear la tabla users si no existe
-        create_table_query = '''
-        CREATE TABLE IF NOT EXISTS users (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          username VARCHAR(50) NOT NULL UNIQUE,
-          password VARCHAR(255) NOT NULL,
-          fullname VARCHAR(100),
-          email VARCHAR(100),
-          document_type VARCHAR(10),
-          identity_number VARCHAR(50),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        '''
-        cursor.execute(create_table_query)
-        conn.commit()
-        print("Tabla 'users' creada o ya existe.")
-    except Exception as ex:
-        print(f"Error al inicializar la base de datos: {ex}")
-    finally:
-        cursor.close()
-        conn.close()
+    with get_db_connection() as conn:  # Cambia aquí
+        try:
+            cursor = conn.cursor()
+            with open('database/facturacion.sql', 'r') as f:
+                sql_script = f.read()
+            for statement in sql_script.split(';'):
+                if statement.strip():
+                    cursor.execute(statement)
+            conn.commit()
+            print("Base de datos y tablas creadas correctamente.")
+        except Exception as ex:
+            print(f"Error al inicializar la base de datos: {ex}")
+
+
+
 
 @app.route('/')
 def index():
@@ -76,20 +65,35 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username')
+        password = request.form.get('password')
 
-        conn = get_db_connection()
-        user = User(0, username, password)  # ID no es necesario para la instancia User
-        logged_user = ModelUser.login(conn, user)
-        conn.close()
+        # Verifica que los campos no estén vacíos
+        if not username or not password:
+            flash("Por favor, completa todos los campos.")
+            return render_template('auth/login.html')
 
-        if logged_user and check_password_hash(logged_user.password, password):
-            login_user(logged_user)
-            return redirect(url_for('home'))
-        else:
-            flash("Invalid username or password")
+        # Intenta obtener la conexión a la base de datos
+        try:
+            with get_db_connection() as conn:
+                # Crea el objeto usuario con los datos proporcionados
+                user = User(username=username, password=password)
+                
+                # Llama al método login de ModelUser
+                logged_user = ModelUser.login(conn, user)
+
+                # Si el inicio de sesión es exitoso
+                if logged_user:
+                    login_user(logged_user)
+                    flash(f"Bienvenido {logged_user.fullname}!")
+                    return redirect(url_for('home'))
+                else:
+                    flash("Nombre de usuario o contraseña inválidos")
+        except MySQLdb.Error as e:
+            flash(f"Error en la base de datos: {e}")
+
     return render_template('auth/login.html')
+
 
 @app.route('/logout')
 @login_required
@@ -107,31 +111,31 @@ def home():
 def protected():
     return "<h1>This is a protected view, only for authenticated users.</h1>"
 
+# Código de registro de usuario
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         username = request.form['username']
-        password = generate_password_hash(request.form['password'])  # Correcto
+        password = request.form['password']  # Contraseña sin hashear
         fullname = request.form['fullname']
         email = request.form['email']
         document_type = request.form['document_type']
         identity_number = request.form['identity_number']
         
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            sql = """INSERT INTO users (username, password, fullname, email, document_type, identity_number) 
-                     VALUES (%s, %s, %s, %s, %s, %s)"""
-            cursor.execute(sql, (username, password, fullname, email, document_type, identity_number))
-            conn.commit()
-            flash('User registered successfully!')
-            conn.close()
+            conn = get_db_connection()  # Establece la conexión a la base de datos
+            # Llama al método register_user para crear un nuevo usuario
+            ModelUser.register_user(conn, username, password, fullname, email, document_type, identity_number)
+            flash('Usuario registrado exitosamente!')
             return redirect(url_for('login'))
         except Exception as ex:
-            flash(f"Error in registration: {ex}")
-            return render_template('auth/register.html')
+            flash(f"Error en el registro: {ex}")  # Mensaje de error si ocurre una excepción
+            return render_template('auth/register.html')  # Muestra el formulario de registro de nuevo
+        finally:
+            conn.close()  # Asegúrate de cerrar la conexión siempre
     
-    return render_template('auth/register.html')
+    return render_template('auth/register.html')  # Muestra el formulario de registro en método GET
+
 
 
 @app.errorhandler(401)
